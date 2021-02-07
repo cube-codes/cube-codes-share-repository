@@ -11,6 +11,11 @@ Everything in region: eu-central-1
 * Name: cube-codes-share-repository
 * Region: eu-central-1
 * Enable Static Website Hosting with index.html
+* Create lifecycle rule
+  * Name: Delete after 30 days
+  * Applys to all objects
+  * Action: Expire current versions of objects
+  * Number of days after object creation: 30
 
 # Create Role
 
