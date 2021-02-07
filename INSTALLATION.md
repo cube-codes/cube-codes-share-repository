@@ -18,39 +18,43 @@ Everything in region: eu-central-1
 * Name: cube-codes-share-repository-api
 * Description: Role to execute api calls on the cube-codes share repository
 * Edit trust relationship
-	{
-		"Version": "2012-10-17",
-		"Statement": [
-			{
-				"Effect": "Allow",
-				"Principal": {
-					"Service": "lambda.amazonaws.com"
-				},
-				"Action": "sts:AssumeRole"
+```
+{
+	"Version": "2012-10-17",
+	"Statement": [
+		{
+			"Effect": "Allow",
+			"Principal": {
+				"Service": "lambda.amazonaws.com"
 			},
-			{
-				"Effect": "Allow",
-				"Principal": {
-					"Service": "apigateway.amazonaws.com"
-				},
-				"Action": "sts:AssumeRole"
-			}
-		]
-	}
+			"Action": "sts:AssumeRole"
+		},
+		{
+			"Effect": "Allow",
+			"Principal": {
+				"Service": "apigateway.amazonaws.com"
+			},
+			"Action": "sts:AssumeRole"
+		}
+	]
+}
+```
 * Add Inline Policy named "policy"
-	{
-		"Version": "2012-10-17",
-		"Statement": [
-			{
-				"Effect": "Allow",
-				"Action": [
-					"s3:PutObject",
-					"s3:GetObject"
-				],
-				"Resource": "arn:aws:s3:::cube-codes-share-repository/*"
-			}
-		]
-	}
+```
+{
+	"Version": "2012-10-17",
+	"Statement": [
+		{
+			"Effect": "Allow",
+			"Action": [
+				"s3:PutObject",
+				"s3:GetObject"
+			],
+			"Resource": "arn:aws:s3:::cube-codes-share-repository/*"
+		}
+	]
+}
+```
 
 # Create Lambda Function
 
