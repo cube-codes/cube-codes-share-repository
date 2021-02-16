@@ -71,7 +71,7 @@ components:
         edgeLength:
           type: integer
           format: int32
-    CubeSolutionPredicate:
+    CubeSolutionCondition:
       type: object
       properties:
         type:
@@ -80,24 +80,21 @@ components:
     CubeHistory:
       type: object
       properties:
+        initialState:
+          type: string
         entries:
           type: array
           items:
-            type: array
-            items:
-              type: integer
-              format: int32
+            type: string
         currentPosition:
           type: integer
           format: int32
-    ProgramEditor:
+    Editor:
       type: object
       properties:
         code:
           type: string
-        collapsed:
-          type: boolean
-    OnloadAction:
+    AutomaticAction:
       type: object
       properties:
         type:
@@ -117,13 +114,13 @@ components:
           type: string
         description:
           type: string
-        spec:
+        cubeSpec:
           $ref: '#/components/schemas/CubeSpecification'
-        solutionPredicate:
-          $ref: '#/components/schemas/CubeSolutionPredicate'
-        history:
+        cubeSolutionCondition:
+          $ref: '#/components/schemas/CubeSolutionCondition'
+        cubeHistory:
           $ref: '#/components/schemas/CubeHistory'
-        programEditor:
-          $ref: '#/components/schemas/ProgramEditor'
-        onloadAction:
-          $ref: '#/components/schemas/OnloadAction'
+        editor:
+          $ref: '#/components/schemas/Editor'
+        automaticAction:
+          $ref: '#/components/schemas/AutomaticAction'

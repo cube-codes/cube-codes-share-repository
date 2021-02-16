@@ -75,6 +75,12 @@ Everything in region: eu-central-1
 * Paste openapi.yaml
 * Endpoint Type: Regional
 
+## Create Empty Model
+
+* Model Name: Empty
+* Content Type: application/json
+* Model Schema: {}
+
 ## POST method
 
 ### Setup
@@ -113,6 +119,10 @@ Everything in region: eu-central-1
 * Add integration response
   * HTTP status regex: 4\d{2}
   * Method response status: 400
+
+### Enable CORS
+
+Click on both resources and eable CORS.
 
 ## Deploy
 
