@@ -39,7 +39,7 @@ Metadata:
 
 Resources:
 
-  Bucket:
+  Storage:
     Type: AWS::S3::Bucket
     Properties:
       BucketName: !Sub "${BucketNamePrefix}${AWS::StackName}-storage"
@@ -55,7 +55,7 @@ Resources:
         RestrictPublicBuckets: true
       WebsiteConfiguration:
         IndexDocument: index.html
-  ReaderRole:
+  ApiReaderRole:
     Type: AWS::IAM::Role
     Properties:
       AssumeRolePolicyDocument:
@@ -75,9 +75,9 @@ Resources:
               - Effect: Allow
                 Action:
                   - s3:GetObject
-                Resource: !Sub "${Bucket.Arn}/*"
-      RoleName: !Sub "${AWS::StackName}-reader"
-  WriterFunctionAccessRole:
+                Resource: !Sub "${Storage.Arn}/*"
+      RoleName: !Sub "${AWS::StackName}-api-reader"
+  ApiWriterRole:
     Type: AWS::IAM::Role
     Properties:
       AssumeRolePolicyDocument:
@@ -98,8 +98,8 @@ Resources:
                 Action:
                   - lambda:InvokeFunction
                 Resource: !GetAtt WriterFunction.Arn
-      RoleName: !Sub "${AWS::StackName}-writer-access"
-  WriterFunctionRole:
+      RoleName: !Sub "${AWS::StackName}-api-writer"
+  WriterRole:
     Type: AWS::IAM::Role
     Properties:
       AssumeRolePolicyDocument:
@@ -120,7 +120,7 @@ Resources:
                 Action:
                   - s3:GetObject
                   - s3:PutObject
-                Resource: !Sub "${Bucket.Arn}/*"
+                Resource: !Sub "${Storage.Arn}/*"
       ManagedPolicyArns:
         - arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
       RoleName: !Sub "${AWS::StackName}-writer"
@@ -176,11 +176,11 @@ Resources:
           };
       Environment:
         Variables:
-          bucket: !Ref Bucket
+          bucket: !Ref Storage
           domainName: !Ref DomainName
       FunctionName: !Sub "${AWS::StackName}-writer"
       Handler: index.handler
-      Role: !GetAtt WriterFunctionRole.Arn
+      Role: !GetAtt WriterRole.Arn
       Runtime: nodejs12.x
   Api:
     Type: AWS::ApiGateway::RestApi
@@ -260,7 +260,7 @@ Resources:
                         $ref: '#/components/schemas/Error'
               x-amazon-apigateway-integration:
                 type: aws_proxy
-                credentials: !GetAtt WriterFunctionAccessRole.Arn
+                credentials: !GetAtt ApiWriterRole.Arn
                 uri: !Sub "arn:aws:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${WriterFunction.Arn}/invocations"
                 payloadFormatVersion: 2.0
                 httpMethod: POST
@@ -326,10 +326,10 @@ Resources:
                         $ref: '#/components/schemas/S3Error'
               x-amazon-apigateway-integration:
                 type: aws
-                credentials: !GetAtt ReaderRole.Arn
+                credentials: !GetAtt ApiReaderRole.Arn
                 requestParameters:
                   integration.request.path.id: method.request.path.id
-                uri: !Sub "arn:aws:apigateway:${AWS::Region}:s3:path/${Bucket}/{id}.json"
+                uri: !Sub "arn:aws:apigateway:${AWS::Region}:s3:path/${Storage}/{id}.json"
                 httpMethod: GET
                 responses:
                   default:
