@@ -1,0 +1,453 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: Share Repository
+
+Parameters:
+
+  DomainName:
+    Description: Full domain name this service should be reachable by
+    Type: String
+
+  CertificateArn:
+    Description: Certificate ARN from region "us-east-1" to secure calls via the domain name above
+    Type: String
+    AllowedPattern: arn:aws:acm:us-east-1:.+
+    ConstraintDescription: must be located in region "us-east-1" (start with "arn:aws:acm:us-east-1:")
+
+  BucketNamePrefix:
+    Description: Prefixes the bucket name (stack name + ...) by a string
+    Type: String
+
+  ExpirationDays:
+    Description: Duration objects until app states expire / are deleted
+    Type: Number
+    MinValue: 0
+    MaxValue: 3650
+
+Metadata:
+  AWS::CloudFormation::Interface:
+    ParameterGroups:
+      - Label:
+          default: Webservice Configuration
+        Parameters:
+          - DomainName
+          - CertificateArn
+      - Label:
+          default: Storage Configuration
+        Parameters:
+          - BucketNamePrefix
+          - ExpirationDays
+
+Resources:
+
+  Bucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      BucketName: !Sub "${BucketNamePrefix}${AWS::StackName}-storage"
+      LifecycleConfiguration: 
+        Rules:
+          - Id: !Sub "Delete after ${ExpirationDays} days"
+            Status: Enabled
+            ExpirationInDays: !Ref ExpirationDays
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: true
+        BlockPublicPolicy: true
+        IgnorePublicAcls: true
+        RestrictPublicBuckets: true
+      WebsiteConfiguration:
+        IndexDocument: index.html
+  ReaderRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service:
+                - apigateway.amazonaws.com
+            Action:
+              - sts:AssumeRole
+      Policies:
+        - PolicyName: policy
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - s3:GetObject
+                Resource: !Sub "${Bucket.Arn}/*"
+      RoleName: !Sub "${AWS::StackName}-reader"
+  WriterFunctionAccessRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service:
+                - apigateway.amazonaws.com
+            Action:
+              - sts:AssumeRole
+      Policies:
+        - PolicyName: policy
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - lambda:InvokeFunction
+                Resource: !GetAtt WriterFunction.Arn
+      RoleName: !Sub "${AWS::StackName}-writer-access"
+  WriterFunctionRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service:
+                - lambda.amazonaws.com
+            Action:
+              - sts:AssumeRole
+      Policies:
+        - PolicyName: policy
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - s3:GetObject
+                  - s3:PutObject
+                Resource: !Sub "${Bucket.Arn}/*"
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
+      RoleName: !Sub "${AWS::StackName}-writer"
+  WriterFunction:
+    Type: AWS::Lambda::Function
+    Properties:
+      Code:
+        ZipFile: |
+          const AWS = require('aws-sdk');
+          const S3 = new AWS.S3();
+
+          exports.handler = async (event, context) => {
+
+            //console.log('Received event: ', JSON.stringify(event, null, 2));
+
+            let responseStatusCode = 200;
+            const responseHeaders = {
+              'Content-Type': 'application/json',
+              'Access-Control-Allow-Origin': '*'
+            };
+            let responseBody;
+
+            try {
+              
+              const expires = new Date();
+              expires.setDate(expires.getDate() + 30);
+
+              const putResult = await S3.putObject({
+                Bucket: process.env.bucket,
+                Key: `${context.awsRequestId}.json`,
+                Body: event.body,
+                ContentType: 'application/json',
+                Expires: expires
+              }).promise();
+
+              responseBody = { url: `https://${process.env.domainName}${event.requestContext.path}/${context.awsRequestId}` };
+
+            } catch (err) {
+              responseStatusCode = 400;
+              responseBody = { message: err.message };
+            }
+            
+            const response = {
+              statusCode: responseStatusCode,
+              headers: responseHeaders,
+              body: JSON.stringify(responseBody)
+            };
+
+            //console.log("Response: ", JSON.stringify(response, null, 2));
+
+            return response;
+
+          };
+      Environment:
+        Variables:
+          bucket: !Ref Bucket
+          domainName: !Ref DomainName
+      FunctionName: !Sub "${AWS::StackName}-writer"
+      Handler: index.handler
+      Role: !GetAtt WriterFunctionRole.Arn
+      Runtime: nodejs12.x
+  Api:
+    Type: AWS::ApiGateway::RestApi
+    Properties:
+      Body:
+        openapi: 3.0.1
+        x-amazon-apigateway-request-validators:
+          full:
+            validateRequestBody: true
+            validateRequestParameters: true
+        x-amazon-apigateway-request-validator: full
+        info:
+          title: Cube Codes Share Repository
+          description: Allows to upload a cube-codes-ide app state and share it
+          contact:
+            email: info@cube.codes
+          version: 1.0.0
+        paths:
+          /appStates:
+            options:
+              summary: CORS support
+              responses:
+                '200':
+                  headers:
+                    Access-Control-Allow-Origin:
+                      schema:
+                        type: string
+                    Access-Control-Allow-Methods:
+                      schema:
+                        type: string
+                    Access-Control-Allow-Headers:
+                      schema:
+                        type: string
+                  content: {}
+              x-amazon-apigateway-integration:
+                type: mock
+                requestTemplates:
+                  application/json: |
+                    {
+                      "statusCode" : 200
+                    }
+                responses:
+                  default:
+                    statusCode: "200"
+                    responseParameters:
+                      method.response.header.Access-Control-Allow-Origin: '''*'''
+                      method.response.header.Access-Control-Allow-Methods: '''*'''
+                      method.response.header.Access-Control-Allow-Headers: '''Content-Type,X-Amz-Date,Authorization,X-Api-Key'''
+                    responseTemplates:
+                      application/json: |
+                        {}
+            post:
+              summary: Add a new app state to the repository
+              requestBody:
+                description: App state that is added to the repository
+                content:
+                  application/json:
+                    schema:
+                      $ref: '#/components/schemas/AppState'
+                required: true
+              responses:
+                '200':
+                  description: Success
+                  headers:
+                    Access-Control-Allow-Origin:
+                      schema:
+                        type: string
+                  content:
+                    application/json:
+                      schema:
+                        $ref: '#/components/schemas/UploadSuccess'
+                '400':
+                  description: Client error
+                  content:
+                    application/json:
+                      schema:
+                        $ref: '#/components/schemas/Error'
+              x-amazon-apigateway-integration:
+                type: aws_proxy
+                credentials: !GetAtt WriterFunctionAccessRole.Arn
+                uri: !Sub "arn:aws:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${WriterFunction.Arn}/invocations"
+                payloadFormatVersion: 2.0
+                httpMethod: POST
+          /appStates/{id}:
+            options:
+              summary: CORS support
+              responses:
+                '200':
+                  headers:
+                    Access-Control-Allow-Origin:
+                      schema:
+                        type: string
+                    Access-Control-Allow-Methods:
+                      schema:
+                        type: string
+                    Access-Control-Allow-Headers:
+                      schema:
+                        type: string
+                  content: {}
+              x-amazon-apigateway-integration:
+                type: mock
+                requestTemplates:
+                  application/json: |
+                    {
+                      "statusCode" : 200
+                    }
+                responses:
+                  default:
+                    statusCode: "200"
+                    responseParameters:
+                      method.response.header.Access-Control-Allow-Origin: '''*'''
+                      method.response.header.Access-Control-Allow-Methods: '''*'''
+                      method.response.header.Access-Control-Allow-Headers: '''Content-Type,X-Amz-Date,Authorization,X-Api-Key'''
+                    responseTemplates:
+                      application/json: |
+                        {}
+            get:
+              summary: Gets an app state from the repository
+              parameters:
+                - name: id
+                  in: path
+                  description: app state id
+                  required: true
+              responses:
+                '200':
+                  description: Success
+                  headers:
+                    Access-Control-Allow-Origin:
+                      schema:
+                        type: string
+                    Expires:
+                      schema:
+                        type: string
+                  content:
+                    application/json:
+                      schema:
+                        $ref: '#/components/schemas/AppState'
+                '400':
+                  description: Client error
+                  content:
+                    application/xml:
+                      schema:
+                        $ref: '#/components/schemas/S3Error'
+              x-amazon-apigateway-integration:
+                type: aws
+                credentials: !GetAtt ReaderRole.Arn
+                requestParameters:
+                  integration.request.path.id: method.request.path.id
+                uri: !Sub "arn:aws:apigateway:${AWS::Region}:s3:path/${Bucket}/{id}.json"
+                httpMethod: GET
+                responses:
+                  default:
+                    statusCode: 200
+                    responseParameters:
+                      method.response.header.Expires: integration.response.header.Expires
+                      method.response.header.Access-Control-Allow-Origin: '''*'''
+                  '4\d{2}':
+                    statusCode: 400
+        components:
+          schemas:
+            UploadSuccess:
+              type: object
+              properties:
+                url:
+                  type: string
+            Error:
+              type: object
+              properties:
+                message:
+                  type: string
+            S3Error: {}
+            CubeSpecification:
+              type: object
+              properties:
+                edgeLength:
+                  type: integer
+                  format: int32
+            CubeSolutionCondition:
+              type: object
+              properties:
+                type:
+                  type: integer
+                  format: int32
+            CubeHistory:
+              type: object
+              properties:
+                initialState:
+                  type: string
+                entries:
+                  type: array
+                  items:
+                    type: string
+                currentPosition:
+                  type: integer
+                  format: int32
+            Editor:
+              type: object
+              properties:
+                code:
+                  type: string
+            AutomaticAction:
+              type: object
+              properties:
+                type:
+                  type: string
+                  enum:
+                  - none
+                  - editorRun
+                  - editorRunFast
+                  - historyStepAhead
+                  - historyStepBack
+                  - historyPlayAhead
+                  - historyPlayBack
+            AppState:
+              type: object
+              properties:
+                title:
+                  type: string
+                description:
+                  type: string
+                cubeSpec:
+                  $ref: '#/components/schemas/CubeSpecification'
+                cubeSolutionCondition:
+                  $ref: '#/components/schemas/CubeSolutionCondition'
+                cubeHistory:
+                  $ref: '#/components/schemas/CubeHistory'
+                editor:
+                  $ref: '#/components/schemas/Editor'
+                automaticAction:
+                  $ref: '#/components/schemas/AutomaticAction'
+  ApiV1Deployment:
+    Type: AWS::ApiGateway::Deployment
+    Properties:
+      RestApiId: !Ref Api
+      StageDescription:
+        LoggingLevel: ERROR
+      StageName: v1
+  ApiDistribution:
+    Type: AWS::CloudFront::Distribution
+    Properties:
+      DistributionConfig:
+        Aliases:
+        - !Sub ${DomainName}
+        DefaultCacheBehavior:
+          AllowedMethods: ["OPTIONS", "GET", "HEAD", "POST", "PUT", "PATCH", "DELETE"]
+          CachedMethods: ["OPTIONS", "GET", "HEAD"]
+          Compress: true
+          DefaultTTL: 0
+          ForwardedValues:
+            Headers:
+              - Access-Control-Request-Headers
+              - Access-Control-Request-Method
+              - Origin
+              - Authorization
+            QueryString: true
+          TargetOriginId: Api
+          ViewerProtocolPolicy: redirect-to-https
+        DefaultRootObject: index.html
+        Enabled: true
+        HttpVersion: http2
+        Origins:
+        - CustomOriginConfig:
+            OriginProtocolPolicy: https-only
+          DomainName: !Sub ${Api}.execute-api.${AWS::Region}.amazonaws.com
+          Id: Api
+        PriceClass: PriceClass_All
+        ViewerCertificate:
+          AcmCertificateArn: !Ref CertificateArn
+          MinimumProtocolVersion: TLSv1.2_2019
+          SslSupportMethod: sni-only
