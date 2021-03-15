@@ -53,8 +53,6 @@ Resources:
         BlockPublicPolicy: true
         IgnorePublicAcls: true
         RestrictPublicBuckets: true
-      WebsiteConfiguration:
-        IndexDocument: index.html
   ApiReaderRole:
     Type: AWS::IAM::Role
     Properties:
