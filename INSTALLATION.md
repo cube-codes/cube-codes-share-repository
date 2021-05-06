@@ -9,6 +9,6 @@
 
 # Create Service
 
-* Create Stack
+* Create Stack: share-repository
 * API Gateway -> deploy (also on every update)
 * Create CNAME entry in DNS from DomainName to CloudFront Hostname
